@@ -1,31 +1,49 @@
 <?php
-// Obtención de credenciales obligatoriamente desde Variables de Entorno (Requisito PaaS)
-$db_host = getenv('DB_HOST') ?: 'localhost';
-$db_port = getenv('DB_PORT') ?: '3306';
-$db_name = getenv('DB_NAME') ?: 'paas_db';
-$db_user = getenv('DB_USER') ?: 'root';
-$db_pass = getenv('DB_PASS') ?: '';
+// Variables de Entorno obligatorias (Requisito PaaS)
+$db_url = getenv('DATABASE_URL');
 
 $pdo = null;
 $error_msg = null;
 
 try {
-    // Conexión PDO compatible con MySQL
-    $dsn = "mysql:host={$db_host};port={$db_port};dbname={$db_name};charset=utf8mb4";
-    $pdo = new PDO($dsn, $db_user, $db_pass, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
-    ]);
+    if (!empty($db_url)) {
+        // Conexión mediante cadena de conexión PostgreSQL de Render
+        $db_parts = parse_url($db_url);
+        $db_host = $db_parts['host'] ?? 'localhost';
+        $db_port = $db_parts['port'] ?? '5432';
+        $db_user = $db_parts['user'] ?? '';
+        $db_pass = $db_parts['pass'] ?? '';
+        $db_name = ltrim($db_parts['path'] ?? '', '/');
+
+        $dsn = "pgsql:host={$db_host};port={$db_port};dbname={$db_name};sslmode=require";
+        $pdo = new PDO($dsn, $db_user, $db_pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+        ]);
+    } else {
+        // Conexión por variables individuales (MySQL/PostgreSQL)
+        $db_host = getenv('DB_HOST') ?: 'localhost';
+        $db_port = getenv('DB_PORT') ?: '3306';
+        $db_name = getenv('DB_NAME') ?: 'paas_db';
+        $db_user = getenv('DB_USER') ?: 'root';
+        $db_pass = getenv('DB_PASS') ?: '';
+
+        $dsn = "mysql:host={$db_host};port={$db_port};dbname={$db_name};charset=utf8mb4";
+        $pdo = new PDO($dsn, $db_user, $db_pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+        ]);
+    }
 
     // Creación automática de la tabla si no existe
     $pdo->exec("CREATE TABLE IF NOT EXISTS productos (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         nombre VARCHAR(100) NOT NULL,
         precio DECIMAL(10,2) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    // Operación: Crear Registro (POST)
+    // Crear Registro (POST)
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'crear') {
         $nombre = trim($_POST['nombre'] ?? '');
         $precio = floatval($_POST['precio'] ?? 0);
@@ -37,7 +55,7 @@ try {
         exit;
     }
 
-    // Operación: Eliminar Registro (GET)
+    // Eliminar Registro (GET)
     if (isset($_GET['eliminar'])) {
         $id = intval($_GET['eliminar']);
         $stmt = $pdo->prepare("DELETE FROM productos WHERE id = ?");
@@ -46,7 +64,7 @@ try {
         exit;
     }
 
-    // Operación: Consultar Registros (SELECT)
+    // Listar Registros (SELECT)
     $productos = $pdo->query("SELECT * FROM productos ORDER BY id DESC")->fetchAll();
 
 } catch (PDOException $e) {
@@ -69,13 +87,13 @@ try {
                 <div class="card shadow-sm border-0 mb-4">
                     <div class="card-body bg-primary text-white rounded-top p-4">
                         <h2 class="h4 mb-1">Módulo CRUD: Gestión de Productos</h2>
-                        <small>Stack: PHP Nativo + MySQL Administrada | Entorno PaaS</small>
+                        <small>Stack: PHP Nativo + Base de Datos Administrada | Entorno PaaS</small>
                     </div>
                     <div class="card-body p-4">
                         <?php if ($error_msg): ?>
                             <div class="alert alert-warning border-0 shadow-sm" role="alert">
                                 <h6 class="alert-heading fw-bold">Esperando conexión a Base de Datos PaaS</h6>
-                                <p class="small mb-0">Define las variables de entorno <code>DB_HOST</code>, <code>DB_NAME</code>, <code>DB_USER</code>, <code>DB_PASS</code> en el panel del PaaS.</p>
+                                <p class="small mb-0">Define la variable de entorno <code>DATABASE_URL</code> en el panel del PaaS.</p>
                                 <hr>
                                 <p class="small text-muted mb-0">Detalle técnico: <?= htmlspecialchars($error_msg) ?></p>
                             </div>
@@ -85,7 +103,6 @@ try {
                                 Base de datos relacional conectada exitosamente vía variables de entorno.
                             </div>
 
-                            <!-- Formulario de Inserción -->
                             <form method="POST" action="index.php" class="row g-3 mb-4">
                                 <input type="hidden" name="accion" value="crear">
                                 <div class="col-md-6">
@@ -99,7 +116,6 @@ try {
                                 </div>
                             </form>
 
-                            <!-- Tabla de Registros -->
                             <div class="table-responsive">
                                 <table class="table table-hover align-middle">
                                     <thead class="table-light">
